@@ -10,7 +10,7 @@ import mailbox
 import pprint
 import ssl
 
-if USE_NOTMUCH:
+if config.USE_NOTMUCH:
     import notmuch
 
 class Gmail(imaplib.IMAP4_SSL):
@@ -133,7 +133,7 @@ class MaildirDatabase(mailbox.Maildir):
 
         self[key] = msg
 
-if USE_NOTMUCH:
+if config.USE_NOTMUCH:
     class NotmuchDatabase(notmuch.Database):
         def get_message_by_id(self, msgid):
             return self.find_message(msgid[1:-1])
@@ -207,7 +207,7 @@ def download_labels(gmail, total):
 
 def main():
     print('opening maildir')
-    if USE_NOTMUCH:
+    if config.USE_NOTMUCH:
         db = NotmuchDatabase(mode=Database.MODE.READ_WRITE)
     else:
         db = MaildirDatabase(config.MAILDIR)
