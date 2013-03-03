@@ -14,7 +14,7 @@ Idea is really simple:
 How to use this
 =============
 
-before: make backup of your Maildir. It works for me, but it may destroy mails for you.
+before: make backup of your Maildir. It works for me, but it may destroy mails for you. It was tested with python 3.3, it may or may not work with older releases. Feel free to post patches / pull requests / issues about older versions.
 
     cp config.py.template config.py
     edit config.py
