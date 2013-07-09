@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3.3
 
 """
 Copyright (C) 2013 Krzysztof Warzecha <kwarzecha7@gmail.com>
@@ -34,7 +34,8 @@ class Gmail(imaplib.IMAP4_SSL):
         imaplib.IMAP4_SSL.__init__(self, 'imap.gmail.com', 993, ssl_context=ctx)
 
         # XXX: I have no idea how to check / if I need to check that thing. State from 2012-12-14.
-        assert self.sock.getpeercert() == {'subject': ((('countryName', 'US'),), (('stateOrProvinceName', 'California'),), (('localityName', 'Mountain View'),), (('organizationName', 'Google Inc'),), (('commonName', 'imap.gmail.com'),)), 'serialNumber': '3B73268B0000000068A5', 'subjectAltName': (('DNS', 'imap.gmail.com'),), 'version': 3, 'notBefore': 'Sep 12 11:55:49 2012 GMT', 'notAfter': 'Jun  7 19:43:27 2013 GMT', 'issuer': ((('countryName', 'US'),), (('organizationName', 'Google Inc'),), (('commonName', 'Google Internet Authority'),))}
+        # MGL: set_default_verify_paths should do the work, as long as openssl is configured properly
+        # assert self.sock.getpeercert() == {'subject': ((('countryName', 'US'),), (('stateOrProvinceName', 'California'),), (('localityName', 'Mountain View'),), (('organizationName', 'Google Inc'),), (('commonName', 'imap.gmail.com'),)), 'serialNumber': '3B73268B0000000068A5', 'subjectAltName': (('DNS', 'imap.gmail.com'),), 'version': 3, 'notBefore': 'Sep 12 11:55:49 2012 GMT', 'notAfter': 'Jun  7 19:43:27 2013 GMT', 'issuer': ((('countryName', 'US'),), (('organizationName', 'Google Inc'),), (('commonName', 'Google Internet Authority'),))}
 
         self.login(login, password)
 
@@ -92,6 +93,7 @@ class MaildirDatabase(mailbox.Maildir):
         self.lock()
 
         self.__message_id_to_message_key = shelve.open(os.path.join(path, 'gmail-sync-labels.index'))
+        self.__message_keys_without_message_id = shelve.open(os.path.join(path, 'gmail-sync-labels.missing'))
 
     def get_message_by_id(self, msgid):
         try:
@@ -103,28 +105,40 @@ class MaildirDatabase(mailbox.Maildir):
         i = 0
         seen = 0
         skipped = 0
-        known_message_keys = self.__message_id_to_message_key.values()
+        known_message_keys = set(self.__message_id_to_message_key.values())
+        known_bad_message_keys = set(self.__message_keys_without_message_id.keys())
 
-        for key, message in self.iteritems():
+        for key in sorted(self.iterkeys()):
             i += 1
 
             if i % 100 == 0:
                 yield i
+            
+            if i % 1000 == 0:
+                # print('snapshotting messages, seen %d of %d' % (seen, i))
+                self.__message_id_to_message_key.sync()
+                self.__message_keys_without_message_id.sync()
 
-            if key in known_message_keys:
+            if key in known_message_keys or key in known_bad_message_keys:
                 seen += 1
                 continue
+            
+            # TODO: handle duplicate message ids
 
             try:
+                # print('processing key=%s' % key)
+                message = self.get(key)
                 self.__message_id_to_message_key[[v for k, v in message.items() if k.upper() == 'Message-ID'.upper()][0]] = key
             except IndexError:
                 skipped += 1
+                self.__message_keys_without_message_id[key] = None
                 print('skipped message without Message-ID header: %s' % key)
 
         print('seen %d messages, skipped %d messages, processed %d messages' % (seen, skipped, i - seen - skipped))
 
     def close(self):
         self.__message_id_to_message_key.close()
+        self.__message_keys_without_message_id.close()
         self.unlock()
 
     def apply_labels(self, msgid, labels):
@@ -229,6 +243,10 @@ def main():
 
         for progress in db.init():
             print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
+        
+        if config.INDEX_ONLY:
+            print('indexing complete')
+            return
 
         print('connecting to gmail')
         gmail = Gmail(config.LOGIN, config.PASSWORD)
