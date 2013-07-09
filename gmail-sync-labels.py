@@ -81,8 +81,10 @@ class Gmail(imaplib.IMAP4_SSL):
         assert int(msglen) == len(resp[1][0][1])
 
         mail = email.message_from_bytes(resp[1][0][1])
-        mail.add_header('X-GM-MSGID', msgid)
-        mail.add_header('X-GM-LABELS', labels)
+        # gmail/getmail returns the mail header spelled a bit different
+        mail.add_header('X-GMAIL-MSGID', msgid)
+        mail.add_header('X-GMAIL-LABELS', labels)
+        #TODO: X-GMAIL-THRID
 
         return mail
 
@@ -92,53 +94,90 @@ class MaildirDatabase(mailbox.Maildir):
         mailbox.Maildir.__init__(self, path)
         self.lock()
 
-        self.__message_id_to_message_key = shelve.open(os.path.join(path, 'gmail-sync-labels.index'))
-        self.__message_keys_without_message_id = shelve.open(os.path.join(path, 'gmail-sync-labels.missing'))
+        self.__message_ids = shelve.open(os.path.join(path, 'gmail-sync-labels'))
+        self.cache_message_info()
+    
+    def cache_message_info(self):
+        # construct secondary indexes in memory
+        self.__message_id_to_key = {}
+        # some messages don't have a message-id, we can't handle them yet
+        # using gmail's message id may be a way around this
+        self.__message_keys_without_id = set()
+        # same problem with message ids that are duplicated
+        self.__duplicated_message_ids = set()
+        for key in self.__message_ids:
+            info = self.__message_ids[key]
+            messageid = info['Message-ID']
+            if messageid == None:
+                self.__message_keys_without_id.add(key)
+            elif messageid in self.__message_id_to_key.keys():
+                # duplicated
+                self.__duplicated_message_ids.add(messageid)
+                del self.__message_id_to_key[messageid]
+            elif messageid not in self.__duplicated_message_ids:
+                self.__message_id_to_key[messageid] = key
+        if config.DEBUG:
+            print('cached index: %d good message ids, %d duplicated ids, %d missing ids' %
+                (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
+                len(self.__message_keys_without_id)))
 
     def get_message_by_id(self, msgid):
         try:
-            return self[self.__message_id_to_message_key[msgid]]
+            return self[self.__message_id_to_key[msgid]]
         except KeyError:
             return None
 
     def init(self):
         i = 0
         seen = 0
-        skipped = 0
-        known_message_keys = set(self.__message_id_to_message_key.values())
-        known_bad_message_keys = set(self.__message_keys_without_message_id.keys())
-
-        for key in sorted(self.iterkeys()):
+        nomsgid = 0
+        nogmailid = 0
+        
+        # process messages in deterministic order in debug mode
+        # don't waste time sorting otherwise
+        for key in sorted(self.iterkeys()) if config.DEBUG else self.iterkeys():
             i += 1
 
             if i % 100 == 0:
                 yield i
             
             if i % 1000 == 0:
-                # print('snapshotting messages, seen %d of %d' % (seen, i))
-                self.__message_id_to_message_key.sync()
-                self.__message_keys_without_message_id.sync()
+                if config.DEBUG:
+                    print('snapshotting messages, seen %d of %d, missing %d/%d' % (seen, i, nomsgid, nogmailid))
+                self.__message_ids.sync()
 
-            if key in known_message_keys or key in known_bad_message_keys:
+            # TODO: re-process messages with a message id but no gmail id,
+            # as a prior run may have added the gmail id
+            if key in self.__message_ids.keys():
                 seen += 1
                 continue
             
-            # TODO: handle duplicate message ids
-
-            try:
-                # print('processing key=%s' % key)
-                message = self.get(key)
-                self.__message_id_to_message_key[[v for k, v in message.items() if k.upper() == 'Message-ID'.upper()][0]] = key
-            except IndexError:
-                skipped += 1
-                self.__message_keys_without_message_id[key] = None
-                print('skipped message without Message-ID header: %s' % key)
-
-        print('seen %d messages, skipped %d messages, processed %d messages' % (seen, skipped, i - seen - skipped))
+            messageid = None
+            gmailid = None
+            
+            message = self.get(key)
+            for k, v in message.items():
+                ku = k.upper()
+                if ku == 'MESSAGE-ID':
+                    messageid = v
+                elif ku == 'X-GMAIL-MSGID':
+                    gmailid = v
+            
+            if messageid == None:
+                nomsgid += 1
+            if gmailid == None:
+                nogmailid += 1
+            
+            self.__message_ids[key] = { 'Message-ID': messageid, 'X-GMAIL-MSGID': gmailid }
+        
+        # update in-memory caches    
+        self.cache_message_info()
+        
+        print('seen %d messages, processed %d messages' % (seen, i - seen))
+        print('processed with no id: %d, no gmail id: %d' % (nomsgid, nogmailid))
 
     def close(self):
-        self.__message_id_to_message_key.close()
-        self.__message_keys_without_message_id.close()
+        self.__message_ids.close()
         self.unlock()
 
     def apply_labels(self, msgid, labels):
@@ -149,11 +188,11 @@ class MaildirDatabase(mailbox.Maildir):
             return
 
         msg = self[key]
-        if msg['X-GM-LABELS'] == labels:
+        if msg['X-GMAIL-LABELS'] == labels:
             return
 
-        del msg['X-GM-LABELS']
-        msg['X-GM-LABELS'] = labels
+        del msg['X-GMAIL-LABELS']
+        msg['X-GMAIL-LABELS'] = labels
 
         self[key] = msg
 

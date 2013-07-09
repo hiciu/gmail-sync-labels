@@ -3,3 +3,4 @@ USE_NOTMUCH = False
 LOGIN, PASSWORD = 'someone@gmail.com', 'password'
 IMAP_FOLDER = '[Gmail]/Inbox'
 INDEX_ONLY = False
+DEBUG = False
