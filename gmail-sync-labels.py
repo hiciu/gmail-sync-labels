@@ -11,6 +11,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 """
 
 import config
+# import importlib
+# import importlib.machinery
+# importlib.machinery.SourceFileLoader('config', 'tmp/foo.py').load_module('config')
 
 import imaplib
 import os
