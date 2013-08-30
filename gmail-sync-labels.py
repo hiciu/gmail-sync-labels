@@ -188,7 +188,7 @@ class MaildirDatabase(mailbox.Maildir):
             key = self.__message_id_to_key[msgid]
         except KeyError:
             if msgid in self.__duplicated_message_ids:
-                if DEBUG:
+                if config.DEBUG:
                     print("skipping message with duplicated id: '%s'" % msgid)
             else:
                 print("no such message: '%s'" % msgid)
@@ -267,10 +267,11 @@ def download_labels(gmail, total):
         try:
             msgid = odd_item[1].decode('utf-8').split()[1]
         except IndexError:
-            print('skipped message without Message-ID header: '
-                  'gmail id %s, link: https://mail.google.com/mail/#all/%s'
-                  % (gmailid, hex(int(gmailthreadid))[2:])
-            )
+            if config.DEBUG:
+                print('skipped message without Message-ID header: '
+                      'gmail id %s, link: https://mail.google.com/mail/#all/%s'
+                      % (gmailid, hex(int(gmailthreadid))[2:])
+                )
             continue
 
         yield msgid, gmailid, labels
