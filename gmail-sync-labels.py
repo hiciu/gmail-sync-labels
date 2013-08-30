@@ -110,16 +110,19 @@ class MaildirDatabase(mailbox.Maildir):
         self.__duplicated_message_ids = set()
         for key in self.__message_ids:
             info = self.__message_ids[key]
-            messageid = info['Message-ID']
-            if messageid == None:
+            messageids = info['Message-ID']
+            for messageid in messageids:
+                if messageid in self.__message_id_to_key.keys():
+                    # duplicated
+                    self.__duplicated_message_ids.add(messageid)
+                    del self.__message_id_to_key[messageid]
+                if messageid not in self.__duplicated_message_ids:
+                    self.__message_id_to_key[messageid] = key
+            if len(messageids) == 0:
                 self.__message_keys_without_id.add(key)
-            elif messageid in self.__message_id_to_key.keys():
-                # duplicated
-                self.__duplicated_message_ids.add(messageid)
-                del self.__message_id_to_key[messageid]
-            elif messageid not in self.__duplicated_message_ids:
-                self.__message_id_to_key[messageid] = key
-        if config.DEBUG:
+            elif config.DEBUG and len(messageids) > 1:
+                print('Message with multiple IDs: %s' % key)
+        if config.DEBUG or config.MESSAGE_DETAILS:
             print('cached index: %d good message ids, %d duplicated ids, %d missing ids' %
                 (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
                 len(self.__message_keys_without_id)))
@@ -135,6 +138,12 @@ class MaildirDatabase(mailbox.Maildir):
         seen = 0
         nomsgid = 0
         nogmailid = 0
+        
+        # message ids can have comments, extract just the <id@id> part
+        # this is not perfect, comments might have strings that look like message ids
+        # would need a full BNF parser for the productions in RFC2822 to handle this exactly right
+        # need this because message ids gmail returns on queries have the comments stripped off
+        extractmsgid = re.compile('.*?(<.*>).*')
         
         # process messages in deterministic order in debug mode
         # don't waste time sorting otherwise
@@ -155,23 +164,28 @@ class MaildirDatabase(mailbox.Maildir):
                 seen += 1
                 continue
             
-            messageid = None
+            messageids = []
             gmailid = None
             
             message = self.get(key)
             for k, v in message.items():
                 ku = k.upper()
                 if ku == 'MESSAGE-ID':
-                    messageid = v
+                    idx = extractmsgid.match(v)
+                    if idx == None:
+                        # bogus looking message id, but track the original value as is
+                        messageids.append(v)
+                    else:
+                        messageids.append(idx.groups()[0])
                 elif ku == 'X-GMAIL-MSGID':
                     gmailid = v
             
-            if messageid == None:
+            if len(messageids) == 0:
                 nomsgid += 1
             if gmailid == None:
                 nogmailid += 1
             
-            self.__message_ids[key] = { 'Message-ID': messageid, 'X-GMAIL-MSGID': gmailid }
+            self.__message_ids[key] = { 'Message-ID': messageids, 'X-GMAIL-MSGID': gmailid }
         
         # update in-memory caches    
         self.cache_message_info()
@@ -188,7 +202,7 @@ class MaildirDatabase(mailbox.Maildir):
             key = self.__message_id_to_key[msgid]
         except KeyError:
             if msgid in self.__duplicated_message_ids:
-                if config.DEBUG:
+                if config.DEBUG or config.MESSAGE_DETAILS:
                     print("skipping message with duplicated id: '%s'" % msgid)
             else:
                 print("no such message: '%s'" % msgid)
@@ -267,7 +281,7 @@ def download_labels(gmail, total):
         try:
             msgid = odd_item[1].decode('utf-8').split()[1]
         except IndexError:
-            if config.DEBUG:
+            if config.DEBUG or config.MESSAGE_DETAILS:
                 print('skipped message without Message-ID header: '
                       'gmail id %s, link: https://mail.google.com/mail/#all/%s'
                       % (gmailid, hex(int(gmailthreadid))[2:])
