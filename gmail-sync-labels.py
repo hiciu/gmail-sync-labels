@@ -183,11 +183,15 @@ class MaildirDatabase(mailbox.Maildir):
         self.__message_ids.close()
         self.unlock()
 
-    def apply_labels(self, msgid, labels):
+    def apply_labels(self, msgid, gmailid, labels):
         try:
             key = self.__message_id_to_key[msgid]
         except KeyError:
-            print('no such message: %s' % msgid)
+            if msgid in self.__duplicated_message_ids:
+                if DEBUG:
+                    print("skipping message with duplicated id: '%s'" % msgid)
+            else:
+                print("no such message: '%s'" % msgid)
             return
 
         msg = self[key]
@@ -213,7 +217,7 @@ if config.USE_NOTMUCH:
         def close(self):
             pass
 
-        def apply_labels(self, msgid, labels):
+        def apply_labels(self, msgid, gmailid, labels):
             msg = self.find_message(msgid[1:-1])
             if not msg:
                 print('no such message: %s' % msgid)
@@ -284,7 +288,8 @@ def main():
         print('searching for new messages')
 
         for progress in db.init():
-            print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
+            if os.isatty(1):
+                print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
         
         if config.INDEX_ONLY:
             print('indexing complete')
@@ -297,16 +302,17 @@ def main():
         total = gmail.selectfolder(config.IMAP_FOLDER)
         i = 0
 
-        print('downloading labels')
+        print('downloading and applying labels')
         for msgid, gmailid, labels in download_labels(gmail, total):
             i += 1
-            if i % 10 == 0:
+            if i % 10 == 0 and os.isatty(1):
                 print('progress: %0.2f%%' % float(i * 100 / total), end='\r')
 
-            db.apply_labels(msgid, labels)
+            db.apply_labels(msgid, gmailid, labels)
 
     finally:
-        print('saving database')
+        # extra whitespace at end to ensure it fully overwrites progress line
+        print('saving database ')
         db.close()
 
 if __name__ == "__main__":
