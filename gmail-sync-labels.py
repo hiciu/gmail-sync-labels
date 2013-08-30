@@ -182,7 +182,7 @@ class MaildirDatabase(mailbox.Maildir):
 
     def apply_labels(self, msgid, labels):
         try:
-            key = self.__message_id_to_message_key[msgid]
+            key = self.__message_id_to_key[msgid]
         except KeyError:
             print('no such message: %s' % msgid)
             return
