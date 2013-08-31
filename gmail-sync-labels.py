@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/python3.3
 
 """
 Copyright (C) 2013 Krzysztof Warzecha <kwarzecha7@gmail.com>
@@ -11,6 +11,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 """
 
 import config
+# import importlib
+# import importlib.machinery
+# importlib.machinery.SourceFileLoader('config', 'tmp/foo.py').load_module('config')
 
 import imaplib
 import os
@@ -34,7 +37,8 @@ class Gmail(imaplib.IMAP4_SSL):
         imaplib.IMAP4_SSL.__init__(self, 'imap.gmail.com', 993, ssl_context=ctx)
 
         # XXX: I have no idea how to check / if I need to check that thing. State from 2012-12-14.
-        assert self.sock.getpeercert() == {'subject': ((('countryName', 'US'),), (('stateOrProvinceName', 'California'),), (('localityName', 'Mountain View'),), (('organizationName', 'Google Inc'),), (('commonName', 'imap.gmail.com'),)), 'serialNumber': '3B73268B0000000068A5', 'subjectAltName': (('DNS', 'imap.gmail.com'),), 'version': 3, 'notBefore': 'Sep 12 11:55:49 2012 GMT', 'notAfter': 'Jun  7 19:43:27 2013 GMT', 'issuer': ((('countryName', 'US'),), (('organizationName', 'Google Inc'),), (('commonName', 'Google Internet Authority'),))}
+        # MGL: set_default_verify_paths should do the work, as long as openssl is configured properly
+        # assert self.sock.getpeercert() == {'subject': ((('countryName', 'US'),), (('stateOrProvinceName', 'California'),), (('localityName', 'Mountain View'),), (('organizationName', 'Google Inc'),), (('commonName', 'imap.gmail.com'),)), 'serialNumber': '3B73268B0000000068A5', 'subjectAltName': (('DNS', 'imap.gmail.com'),), 'version': 3, 'notBefore': 'Sep 12 11:55:49 2012 GMT', 'notAfter': 'Jun  7 19:43:27 2013 GMT', 'issuer': ((('countryName', 'US'),), (('organizationName', 'Google Inc'),), (('commonName', 'Google Internet Authority'),))}
 
         self.login(login, password)
 
@@ -80,8 +84,10 @@ class Gmail(imaplib.IMAP4_SSL):
         assert int(msglen) == len(resp[1][0][1])
 
         mail = email.message_from_bytes(resp[1][0][1])
-        mail.add_header('X-GM-MSGID', msgid)
-        mail.add_header('X-GM-LABELS', labels)
+        # gmail/getmail returns the mail header spelled a bit different
+        mail.add_header('X-GMAIL-MSGID', msgid)
+        mail.add_header('X-GMAIL-LABELS', labels)
+        #TODO: X-GMAIL-THRID
 
         return mail
 
@@ -91,55 +97,123 @@ class MaildirDatabase(mailbox.Maildir):
         mailbox.Maildir.__init__(self, path)
         self.lock()
 
-        self.__message_id_to_message_key = shelve.open(os.path.join(path, 'gmail-sync-labels.index'))
+        self.__message_ids = shelve.open(os.path.join(path, 'gmail-sync-labels'))
+        self.cache_message_info()
+    
+    def cache_message_info(self):
+        # construct secondary indexes in memory
+        self.__message_id_to_key = {}
+        # some messages don't have a message-id, we can't handle them yet
+        # using gmail's message id may be a way around this
+        self.__message_keys_without_id = set()
+        # same problem with message ids that are duplicated
+        self.__duplicated_message_ids = set()
+        for key in self.__message_ids:
+            info = self.__message_ids[key]
+            messageids = info['Message-ID']
+            for messageid in messageids:
+                if messageid in self.__message_id_to_key.keys():
+                    # duplicated
+                    self.__duplicated_message_ids.add(messageid)
+                    del self.__message_id_to_key[messageid]
+                if messageid not in self.__duplicated_message_ids:
+                    self.__message_id_to_key[messageid] = key
+            if len(messageids) == 0:
+                self.__message_keys_without_id.add(key)
+            elif config.DEBUG and len(messageids) > 1:
+                print('Message with multiple IDs: %s' % key)
+        if config.DEBUG or config.MESSAGE_DETAILS:
+            print('cached index: %d good message ids, %d duplicated ids, %d missing ids' %
+                (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
+                len(self.__message_keys_without_id)))
 
     def get_message_by_id(self, msgid):
         try:
-            return self[self.__message_id_to_message_key[msgid]]
+            return self[self.__message_id_to_key[msgid]]
         except KeyError:
             return None
 
     def init(self):
         i = 0
         seen = 0
-        skipped = 0
-        known_message_keys = self.__message_id_to_message_key.values()
-
-        for key, message in self.iteritems():
+        nomsgid = 0
+        nogmailid = 0
+        
+        # message ids can have comments, extract just the <id@id> part
+        # this is not perfect, comments might have strings that look like message ids
+        # would need a full BNF parser for the productions in RFC2822 to handle this exactly right
+        # need this because message ids gmail returns on queries have the comments stripped off
+        extractmsgid = re.compile('.*?(<.*>).*')
+        
+        # process messages in deterministic order in debug mode
+        # don't waste time sorting otherwise
+        for key in sorted(self.iterkeys()) if config.DEBUG else self.iterkeys():
             i += 1
 
             if i % 100 == 0:
                 yield i
+            
+            if i % 1000 == 0:
+                if config.DEBUG:
+                    print('snapshotting messages, seen %d of %d, missing %d/%d' % (seen, i, nomsgid, nogmailid))
+                self.__message_ids.sync()
 
-            if key in known_message_keys:
+            # TODO: re-process messages with a message id but no gmail id,
+            # as a prior run may have added the gmail id
+            if key in self.__message_ids.keys():
                 seen += 1
                 continue
-
-            try:
-                self.__message_id_to_message_key[[v for k, v in message.items() if k.upper() == 'Message-ID'.upper()][0]] = key
-            except IndexError:
-                skipped += 1
-                print('skipped message without Message-ID header: %s' % key)
-
-        print('seen %d messages, skipped %d messages, processed %d messages' % (seen, skipped, i - seen - skipped))
+            
+            messageids = []
+            gmailid = None
+            
+            message = self.get(key)
+            for k, v in message.items():
+                ku = k.upper()
+                if ku == 'MESSAGE-ID':
+                    idx = extractmsgid.match(v)
+                    if idx == None:
+                        # bogus looking message id, but track the original value as is
+                        messageids.append(v)
+                    else:
+                        messageids.append(idx.groups()[0])
+                elif ku == 'X-GMAIL-MSGID':
+                    gmailid = v
+            
+            if len(messageids) == 0:
+                nomsgid += 1
+            if gmailid == None:
+                nogmailid += 1
+            
+            self.__message_ids[key] = { 'Message-ID': messageids, 'X-GMAIL-MSGID': gmailid }
+        
+        # update in-memory caches    
+        self.cache_message_info()
+        
+        print('seen %d messages, processed %d messages' % (seen, i - seen))
+        print('processed with no id: %d, no gmail id: %d' % (nomsgid, nogmailid))
 
     def close(self):
-        self.__message_id_to_message_key.close()
+        self.__message_ids.close()
         self.unlock()
 
-    def apply_labels(self, msgid, labels):
+    def apply_labels(self, msgid, gmailid, labels):
         try:
-            key = self.__message_id_to_message_key[msgid]
+            key = self.__message_id_to_key[msgid]
         except KeyError:
-            print('no such message: %s' % msgid)
+            if msgid in self.__duplicated_message_ids:
+                if config.DEBUG or config.MESSAGE_DETAILS:
+                    print("skipping message with duplicated id: '%s'" % msgid)
+            else:
+                print("no such message: '%s'" % msgid)
             return
 
         msg = self[key]
-        if msg['X-GM-LABELS'] == labels:
+        if msg['X-GMAIL-LABELS'] == labels:
             return
 
-        del msg['X-GM-LABELS']
-        msg['X-GM-LABELS'] = labels
+        del msg['X-GMAIL-LABELS']
+        msg['X-GMAIL-LABELS'] = labels
 
         self[key] = msg
 
@@ -157,7 +231,7 @@ if config.USE_NOTMUCH:
         def close(self):
             pass
 
-        def apply_labels(self, msgid, labels):
+        def apply_labels(self, msgid, gmailid, labels):
             msg = self.find_message(msgid[1:-1])
             if not msg:
                 print('no such message: %s' % msgid)
@@ -207,10 +281,11 @@ def download_labels(gmail, total):
         try:
             msgid = odd_item[1].decode('utf-8').split()[1]
         except IndexError:
-            print('skipped message without Message-ID header: '
-                  'gmail id %s, link: https://mail.google.com/mail/#all/%s'
-                  % (gmailid, hex(int(gmailthreadid))[2:])
-            )
+            if config.DEBUG or config.MESSAGE_DETAILS:
+                print('skipped message without Message-ID header: '
+                      'gmail id %s, link: https://mail.google.com/mail/#all/%s'
+                      % (gmailid, hex(int(gmailthreadid))[2:])
+                )
             continue
 
         yield msgid, gmailid, labels
@@ -228,7 +303,12 @@ def main():
         print('searching for new messages')
 
         for progress in db.init():
-            print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
+            if os.isatty(1):
+                print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
+        
+        if config.INDEX_ONLY:
+            print('indexing complete')
+            return
 
         print('connecting to gmail')
         gmail = Gmail(config.LOGIN, config.PASSWORD)
@@ -237,16 +317,17 @@ def main():
         total = gmail.selectfolder(config.IMAP_FOLDER)
         i = 0
 
-        print('downloading labels')
+        print('downloading and applying labels')
         for msgid, gmailid, labels in download_labels(gmail, total):
             i += 1
-            if i % 10 == 0:
+            if i % 10 == 0 and os.isatty(1):
                 print('progress: %0.2f%%' % float(i * 100 / total), end='\r')
 
-            db.apply_labels(msgid, labels)
+            db.apply_labels(msgid, gmailid, labels)
 
     finally:
-        print('saving database')
+        # extra whitespace at end to ensure it fully overwrites progress line
+        print('saving database ')
         db.close()
 
 if __name__ == "__main__":

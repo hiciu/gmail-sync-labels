@@ -1,4 +1,13 @@
 MAILDIR = '/home/someone/Maildir'
 USE_NOTMUCH = False
 LOGIN, PASSWORD = 'someone@gmail.com', 'password'
+# some versions of imaplib need extra quotes in here if you use a mailbox
+# with spaces, such as:
+# IMAP_FOLDER = '"[Gmail]/All Mail"'
 IMAP_FOLDER = '[Gmail]/Inbox'
+# just run the indexing pass, not the download / label update pass?
+INDEX_ONLY = False
+# generate debugging output?
+DEBUG = False
+# print message statistics and info about degenerate or problematic messages?
+MESSAGE_DETAILS = False
