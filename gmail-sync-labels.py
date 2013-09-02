@@ -26,6 +26,8 @@ import ssl
 if config.USE_NOTMUCH:
     import notmuch
 
+DATA_VERSION = 2
+
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, login, password):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
@@ -100,18 +102,35 @@ class MaildirDatabase(mailbox.Maildir):
         self.lock()
 
         self.__message_ids = shelve.open(os.path.join(path, 'gmail-sync-labels'))
+        if not '__VERSION' in self.__message_ids.keys() or self.__message_ids['__VERSION'] != DATA_VERSION:
+            print('New database or new software version, re-indexing')
+            # calling .clear() is very slow on a full database
+            # a fully portable way of finding what files to delete is non-trivial(?)
+            # but we can tell the underlying library to start fresh
+            #self.__message_ids.clear()
+            self.__message_ids.close()
+            #os.unlink(os.path.join(path, 'gmail-sync-labels'))
+            self.__message_ids = shelve.open(os.path.join(path, 'gmail-sync-labels'), flag='n')
+            self.__message_ids['__VERSION'] = DATA_VERSION
         self.cache_message_info()
     
     def cache_message_info(self):
         # construct secondary indexes in memory
         self.__message_id_to_key = {}
+        self.__gmail_id_to_key = {}
         # some messages don't have a message-id, we can't handle them yet
         # using gmail's message id may be a way around this
         self.__message_keys_without_id = set()
         # same problem with message ids that are duplicated
         self.__duplicated_message_ids = set()
         for key in self.__message_ids:
+            if key == '__VERSION':
+                continue
             info = self.__message_ids[key]
+            gmailid = info['X-GMAIL-MSGID']
+            if gmailid != None:
+                assert(gmailid not in self.__gmail_id_to_key.keys())
+                self.__gmail_id_to_key[gmailid] = key
             messageids = info['Message-ID']
             for messageid in messageids:
                 if messageid in self.__message_id_to_key.keys():
@@ -128,13 +147,6 @@ class MaildirDatabase(mailbox.Maildir):
             print('cached index: %d good message ids, %d duplicated ids, %d missing ids' %
                 (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
                 len(self.__message_keys_without_id)))
-
-    # dead code?
-    def get_message_by_id(self, msgid):
-        try:
-            return self[self.__message_id_to_key[msgid]]
-        except KeyError:
-            return None
 
     def init(self):
         i = 0
@@ -164,6 +176,8 @@ class MaildirDatabase(mailbox.Maildir):
             # TODO: re-process messages with a message id but no gmail id,
             # as a prior run may have added the gmail id
             if key in self.__message_ids.keys():
+                if key == '__VERSION':
+                    continue
                 seen += 1
                 continue
             
@@ -181,6 +195,8 @@ class MaildirDatabase(mailbox.Maildir):
                     else:
                         messageids.append(idx.groups()[0])
                 elif ku == 'X-GMAIL-MSGID':
+                    # gmailid should never be duplicated
+                    assert(gmailid == None)
                     gmailid = v
             
             if len(messageids) == 0:
@@ -188,6 +204,8 @@ class MaildirDatabase(mailbox.Maildir):
             if gmailid == None:
                 nogmailid += 1
             
+            # gmailid should always be present
+            assert(gmailid != None)
             self.__message_ids[key] = { 'Message-ID': messageids, 'X-GMAIL-MSGID': gmailid }
         
         # update in-memory caches    
@@ -201,16 +219,26 @@ class MaildirDatabase(mailbox.Maildir):
         self.unlock()
 
     def apply_labels(self, msgid, gmailid, gmailthreadid, labels):
-        try:
-            key = self.__message_id_to_key[msgid]
-        except KeyError:
-            if msgid in self.__duplicated_message_ids:
+        key = None
+        if gmailid != None:
+            try:
+                key = self.__gmail_id_to_key[gmailid]
+            except KeyError:
                 if config.DEBUG or config.MESSAGE_DETAILS:
-                    print("skipping message with duplicated id: '%s'" % msgid)
-            else:
-                print("no such message: '%s'" % msgid)
+                    print("Can't find message by gmail id %s, retrying by message id" % gmailid)
+        if key == None and msgid != None:
+            try:
+                key = self.__message_id_to_key[msgid]
+            except KeyError:
+                if msgid in self.__duplicated_message_ids:
+                    if config.DEBUG or config.MESSAGE_DETAILS:
+                        print("skipping message with duplicated id: '%s'" % msgid)
+        
+        if key == None:
+            if config.DEBUG or config.MESSAGE_DETAILS:
+                print("no such message: '%s' / '%s'" % (msgid, gmailid))
             return -1
-
+        
         msg = self[key]
         if msg['X-GMAIL-LABELS'] == labels:
             return 0
@@ -224,10 +252,6 @@ class MaildirDatabase(mailbox.Maildir):
 
 if config.USE_NOTMUCH:
     class NotmuchDatabase(notmuch.Database):
-        # dead code?
-        def get_message_by_id(self, msgid):
-            return self.find_message(msgid[1:-1])
-
         def init(self):
             yield len(self)
 
