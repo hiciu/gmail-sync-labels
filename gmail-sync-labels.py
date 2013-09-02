@@ -44,7 +44,7 @@ class Gmail(imaplib.IMAP4_SSL):
 
         assert 'X-GM-EXT-1' in self.capabilities
 
-        self.__message_from_imapid_re = re.compile('(\d+) \(X-GM-MSGID (\d+) X-GM-LABELS \((.*)\) RFC822 {(\d+)}')
+        self.__message_from_imapid_re = re.compile('(\d+) \(X-GM-MSGID (\d+) X-GM-THRID (\d+) X-GM-LABELS \((.*)\) RFC822 {(\d+)}')
 
     def selectfolder(self, folder, readonly=True):
         resp = self.select(folder, readonly)
@@ -55,6 +55,7 @@ class Gmail(imaplib.IMAP4_SSL):
 
         return total
 
+    # dead code?
     def listmessages(self, folder):
         print(' .. selecting mailbox')
         total = self.selectfolder(folder)
@@ -73,21 +74,22 @@ class Gmail(imaplib.IMAP4_SSL):
 
             yield int(imapid), int(gmailid)
 
+    # dead code?
     def message_from_imapid(self, imapid):
-        resp = self.fetch('%d' % imapid, '(X-GM-MSGID X-GM-LABELS RFC822)')
+        resp = self.fetch('%d' % imapid, '(X-GM-MSGID X-GM-THRID X-GM-LABELS RFC822)')
 
         assert resp[0] == 'OK'
         assert resp[1][1] == b')'
 
-        imapid, msgid, labels, msglen = self.__message_from_imapid_re.match(resp[1][0][0].decode('utf-8')).groups()
+        imapid, msgid, thrid, labels, msglen = self.__message_from_imapid_re.match(resp[1][0][0].decode('utf-8')).groups()
 
         assert int(msglen) == len(resp[1][0][1])
 
         mail = email.message_from_bytes(resp[1][0][1])
         # gmail/getmail returns the mail header spelled a bit different
         mail.add_header('X-GMAIL-MSGID', msgid)
+        mail.add_header('X-GMAIL-THRID', thrid)
         mail.add_header('X-GMAIL-LABELS', labels)
-        #TODO: X-GMAIL-THRID
 
         return mail
 
@@ -127,6 +129,7 @@ class MaildirDatabase(mailbox.Maildir):
                 (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
                 len(self.__message_keys_without_id)))
 
+    # dead code?
     def get_message_by_id(self, msgid):
         try:
             return self[self.__message_id_to_key[msgid]]
@@ -197,7 +200,7 @@ class MaildirDatabase(mailbox.Maildir):
         self.__message_ids.close()
         self.unlock()
 
-    def apply_labels(self, msgid, gmailid, labels):
+    def apply_labels(self, msgid, gmailid, gmailthreadid, labels):
         try:
             key = self.__message_id_to_key[msgid]
         except KeyError:
@@ -206,19 +209,22 @@ class MaildirDatabase(mailbox.Maildir):
                     print("skipping message with duplicated id: '%s'" % msgid)
             else:
                 print("no such message: '%s'" % msgid)
-            return
+            return -1
 
         msg = self[key]
         if msg['X-GMAIL-LABELS'] == labels:
-            return
+            return 0
 
         del msg['X-GMAIL-LABELS']
         msg['X-GMAIL-LABELS'] = labels
 
         self[key] = msg
+        
+        return 1
 
 if config.USE_NOTMUCH:
     class NotmuchDatabase(notmuch.Database):
+        # dead code?
         def get_message_by_id(self, msgid):
             return self.find_message(msgid[1:-1])
 
@@ -231,16 +237,16 @@ if config.USE_NOTMUCH:
         def close(self):
             pass
 
-        def apply_labels(self, msgid, gmailid, labels):
+        def apply_labels(self, msgid, gmailid, gmailthreadid, labels):
             msg = self.find_message(msgid[1:-1])
             if not msg:
                 print('no such message: %s' % msgid)
-                return
+                return -1
 
             tags = list(filter(lambda x: len(x) != 0, map(str.strip, labels.split('"'))))
 
             if sorted(tags) == sorted(list(msg.get_tags())):
-                return
+                return 0
 
             msg.freeze()
             msg.remove_all_tags(False)
@@ -248,6 +254,8 @@ if config.USE_NOTMUCH:
                 msg.add_tag(tag, False)
             msg.thaw()
             msg.tags_to_maildir_flags()
+            
+            return 1
 
 def download_labels(gmail, total):
     resp = gmail.fetch('1:%d' % total, '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
@@ -288,7 +296,7 @@ def download_labels(gmail, total):
                 )
             continue
 
-        yield msgid, gmailid, labels
+        yield msgid, gmailid, gmailthreadid, labels
 
 def main():
     print('opening maildir')
@@ -318,12 +326,19 @@ def main():
         i = 0
 
         print('downloading and applying labels')
-        for msgid, gmailid, labels in download_labels(gmail, total):
+        updated_msgs = 0
+        errors = 0
+        for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
             i += 1
             if i % 10 == 0 and os.isatty(1):
                 print('progress: %0.2f%%' % float(i * 100 / total), end='\r')
 
-            db.apply_labels(msgid, gmailid, labels)
+            updaterc = db.apply_labels(msgid, gmailid, gmailthreadid, labels)
+            if updaterc < 0:
+                errors += 1
+            else:
+                updated_msgs += updaterc
+        print('Updated %d messages, %d errors' % (updated_msgs, errors))
 
     finally:
         # extra whitespace at end to ensure it fully overwrites progress line
