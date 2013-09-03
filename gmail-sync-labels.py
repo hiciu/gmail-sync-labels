@@ -242,7 +242,10 @@ class MaildirDatabase(mailbox.Maildir):
         msg = self[key]
         if msg['X-GMAIL-LABELS'] == labels:
             return 0
-
+        
+        if config.DEBUG:
+            print("Updating message %s: '%s'/%s/%s => '%s'" % (key, msgid, gmailid, msg['X-GMAIL-LABELS'], labels))
+        
         del msg['X-GMAIL-LABELS']
         msg['X-GMAIL-LABELS'] = labels
 
@@ -262,6 +265,9 @@ if config.USE_NOTMUCH:
             pass
 
         def apply_labels(self, msgid, gmailid, gmailthreadid, labels):
+            if msgid == None:
+                #TODO: support lookup via gmail id in notmuch
+                return -1
             msg = self.find_message(msgid[1:-1])
             if not msg:
                 print('no such message: %s' % msgid)
@@ -306,7 +312,7 @@ def download_labels(gmail, total):
 
     # every odd (1, 3, 5, 7, ...) item should match regexp
     for odd_item in resp[1][::2]:
-        imapid, gmailid, gmailthreadid, labels, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
+        imapid, gmailthreadid, gmailid, labels, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
 
         assert int(payloadlen) == len(odd_item[1])
 
@@ -314,11 +320,13 @@ def download_labels(gmail, total):
             msgid = odd_item[1].decode('utf-8').split()[1]
         except IndexError:
             if config.DEBUG or config.MESSAGE_DETAILS:
-                print('skipped message without Message-ID header: '
+                print('got message without Message-ID header: '
                       'gmail id %s, link: https://mail.google.com/mail/#all/%s'
                       % (gmailid, hex(int(gmailthreadid))[2:])
                 )
-            continue
+            #continue
+            # allow update by gmail id
+            msgid = None
 
         yield msgid, gmailid, gmailthreadid, labels
 
