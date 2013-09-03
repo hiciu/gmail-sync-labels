@@ -26,7 +26,7 @@ import ssl
 if config.USE_NOTMUCH:
     import notmuch
 
-DATA_VERSION = 2
+DATA_VERSION = 3
 
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, login, password):
