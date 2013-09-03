@@ -112,7 +112,8 @@ class MaildirDatabase(mailbox.Maildir):
             #os.unlink(os.path.join(path, 'gmail-sync-labels'))
             self.__message_ids = shelve.open(os.path.join(path, 'gmail-sync-labels'), flag='n')
             self.__message_ids['__VERSION'] = DATA_VERSION
-        self.cache_message_info()
+        # don't need this data yet
+        #self.cache_message_info()
     
     def cache_message_info(self):
         # construct secondary indexes in memory
@@ -129,7 +130,7 @@ class MaildirDatabase(mailbox.Maildir):
             info = self.__message_ids[key]
             gmailid = info['X-GMAIL-MSGID']
             if gmailid != None:
-                assert(gmailid not in self.__gmail_id_to_key.keys())
+                assert gmailid not in self.__gmail_id_to_key.keys(), 'duplicate gmail id %s' % gmailid
                 self.__gmail_id_to_key[gmailid] = key
             messageids = info['Message-ID']
             for messageid in messageids:
@@ -160,9 +161,13 @@ class MaildirDatabase(mailbox.Maildir):
         # need this because message ids gmail returns on queries have the comments stripped off
         extractmsgid = re.compile('.*?(<.*>).*')
         
+        # track what message keys still exist, remove others from the cache
+        seenkeys = set()
+        
         # process messages in deterministic order in debug mode
         # don't waste time sorting otherwise
         for key in sorted(self.iterkeys()) if config.DEBUG else self.iterkeys():
+            seenkeys.add(key)
             i += 1
 
             if i % 100 == 0:
@@ -176,8 +181,6 @@ class MaildirDatabase(mailbox.Maildir):
             # TODO: re-process messages with a message id but no gmail id,
             # as a prior run may have added the gmail id
             if key in self.__message_ids.keys():
-                if key == '__VERSION':
-                    continue
                 seen += 1
                 continue
             
@@ -207,6 +210,14 @@ class MaildirDatabase(mailbox.Maildir):
             # gmailid should always be present
             assert(gmailid != None)
             self.__message_ids[key] = { 'Message-ID': messageids, 'X-GMAIL-MSGID': gmailid }
+        
+        # remove any deleted messages from index
+        for key in list(self.__message_ids.keys() - seenkeys):
+            if key == '__VERSION':
+                continue
+            if config.DEBUG:
+                print('removing obsolete key %s' % key)
+            del self.__message_ids[key]
         
         # update in-memory caches    
         self.cache_message_info()
