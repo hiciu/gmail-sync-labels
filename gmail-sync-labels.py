@@ -124,15 +124,18 @@ class MaildirDatabase(mailbox.Maildir):
         self.__message_keys_without_id = set()
         # same problem with message ids that are duplicated
         self.__duplicated_message_ids = set()
+        foundfatalerrors = False
         for key in self.__message_ids:
             if key == '__VERSION':
                 continue
             info = self.__message_ids[key]
             gmailid = info['X-GMAIL-MSGID']
             if gmailid != None:
-                assert gmailid not in self.__gmail_id_to_key.keys(), 'duplicate gmail id %s in %s and %s' % (
-                    gmailid, key, self.__gmail_id_to_key[gmailid])
-                self.__gmail_id_to_key[gmailid] = key
+                if gmailid in self.__gmail_id_to_key.keys():
+                    print('duplicate gmail id %s in %s and %s' % (gmailid, key, self.__gmail_id_to_key[gmailid]))
+                    foundfatalerrors = True
+                else:
+                    self.__gmail_id_to_key[gmailid] = key
             messageids = info['Message-ID']
             for messageid in messageids:
                 if messageid in self.__message_id_to_key.keys():
@@ -149,6 +152,8 @@ class MaildirDatabase(mailbox.Maildir):
             print('cached index: %d good message ids, %d duplicated ids, %d missing ids' %
                 (len(self.__message_id_to_key), len(self.__duplicated_message_ids),
                 len(self.__message_keys_without_id)))
+        if foundfatalerrors:
+            assert False, 'Found fatal errors, cannot continue'
 
     def init(self):
         i = 0
