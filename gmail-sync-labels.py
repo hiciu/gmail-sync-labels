@@ -130,7 +130,8 @@ class MaildirDatabase(mailbox.Maildir):
             info = self.__message_ids[key]
             gmailid = info['X-GMAIL-MSGID']
             if gmailid != None:
-                assert gmailid not in self.__gmail_id_to_key.keys(), 'duplicate gmail id %s' % gmailid
+                assert gmailid not in self.__gmail_id_to_key.keys(), 'duplicate gmail id %s in %s and %s' % (
+                    gmailid, key, self.__gmail_id_to_key[gmailid])
                 self.__gmail_id_to_key[gmailid] = key
             messageids = info['Message-ID']
             for messageid in messageids:
