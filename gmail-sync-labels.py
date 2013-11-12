@@ -15,18 +15,29 @@ import config
 # import importlib.machinery
 # importlib.machinery.SourceFileLoader('config', 'tmp/foo.py').load_module('config')
 
+import email.header
 import imaplib
+import mailbox
 import os
+import pprint
 import re
 import shelve
-import mailbox
-import pprint
 import ssl
 
 if config.USE_NOTMUCH:
     import notmuch
 
-DATA_VERSION = 3
+DATA_VERSION = 4
+
+# utility helper
+# GMail has started returning many headers with utf-8 encoding
+# even if their value is 100% ascii
+def header_to_string(headervalue):
+    decoded = email.header.decode_header(headervalue)
+    header = email.header.Header()
+    for p in decoded:
+        header.append(p[0], p[1])
+    return str(header)
 
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, login, password):
@@ -196,17 +207,19 @@ class MaildirDatabase(mailbox.Maildir):
             message = self.get(key)
             for k, v in message.items():
                 ku = k.upper()
+                vv = header_to_string(v)
                 if ku == 'MESSAGE-ID':
-                    idx = extractmsgid.match(v)
+                    idx = extractmsgid.match(vv)
                     if idx == None:
-                        # bogus looking message id, but track the original value as is
-                        messageids.append(v)
+                        if config.DEBUG:
+                            print("Bogus looking message id '%s', tracking as-is" % (vv))
+                        messageids.append(vv)
                     else:
                         messageids.append(idx.groups()[0])
                 elif ku == 'X-GMAIL-MSGID':
                     # gmailid should never be duplicated
                     assert(gmailid == None)
-                    gmailid = v
+                    gmailid = vv
             
             if len(messageids) == 0:
                 nomsgid += 1
@@ -242,7 +255,7 @@ class MaildirDatabase(mailbox.Maildir):
                 key = self.__gmail_id_to_key[gmailid]
             except KeyError:
                 if config.DEBUG or config.MESSAGE_DETAILS:
-                    print("Can't find message by gmail id %s, retrying by message id" % gmailid)
+                    print("Can't find message by gmail id %s, retrying by message id %s" % (gmailid, msgid))
         if key == None and msgid != None:
             try:
                 key = self.__message_id_to_key[msgid]
