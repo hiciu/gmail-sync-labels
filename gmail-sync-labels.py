@@ -36,7 +36,12 @@ def header_to_string(headervalue):
     decoded = email.header.decode_header(headervalue)
     header = email.header.Header()
     for p in decoded:
-        header.append(p[0], p[1])
+        try:
+            header.append(p[0], p[1])
+        except UnicodeDecodeError:
+            print("error handing header '%s'" % headervalue)
+            print("unable to process header %s in encoding %s" %(repr(p[0]), p[1]))
+            raise
     return str(header)
 
 class Gmail(imaplib.IMAP4_SSL):
@@ -207,8 +212,11 @@ class MaildirDatabase(mailbox.Maildir):
             message = self.get(key)
             for k, v in message.items():
                 ku = k.upper()
-                vv = header_to_string(v)
+                # don't decode every header, both for performance
+                # and to avoid getting stuck on bogusly encoded headers
+                # that we don't care about to begin with
                 if ku == 'MESSAGE-ID':
+                    vv = header_to_string(v)
                     idx = extractmsgid.match(vv)
                     if idx == None:
                         if config.DEBUG:
@@ -219,6 +227,7 @@ class MaildirDatabase(mailbox.Maildir):
                 elif ku == 'X-GMAIL-MSGID':
                     # gmailid should never be duplicated
                     assert(gmailid == None)
+                    vv = header_to_string(v)
                     gmailid = vv
             
             if len(messageids) == 0:
