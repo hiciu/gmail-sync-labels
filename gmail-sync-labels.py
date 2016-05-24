@@ -1,4 +1,4 @@
-#!/usr/bin/python3.3
+#!/usr/bin/python3
 
 """
 Copyright (C) 2013 Krzysztof Warzecha <kwarzecha7@gmail.com>
