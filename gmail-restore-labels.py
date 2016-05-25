@@ -109,7 +109,7 @@ def create_label_index(gmail, cfg):
     for uid, msgid, labels in download_labels(gmail, total):
         msglabels = index.setdefault(msgid, set())
         msglabels.update(map_labels(labels))
-        ++count
+        count += 1
         if count % 100 == 0:
             print("Fetch: %7d/%7d" % (count, total), end='\r')
     return index
@@ -118,7 +118,7 @@ def apply_labels(gmail, cfg, index):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
     count = 0
     for uid, msgid, labels in download_labels(gmail, total):
-        ++count
+        count += 1
         msgwantlabels = index.get(msgid)
         if msgwantlabels is None:
             print("No labels for %s" % msgid)
