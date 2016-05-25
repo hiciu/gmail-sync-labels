@@ -122,13 +122,10 @@ def apply_labels(gmail, cfg, index):
     for uid, msgid, labels in download_labels(gmail, total):
         count += 1
         msgwantlabels = index.get(msgid)
-        if msgwantlabels is None:
+        if len(msgwantlabels) == 0:
             print("No labels for %s" % msgid)
-            continue
         msghaslabels = set(map_labels(labels))
         msgneedlabels = msgwantlabels - msghaslabels
-        if len(msgneedlabels) == 0:
-            continue
         #print("Message %s has %s, should have %s, add %s" % (msgid, msghaslabels, msgwantlabels, msgneedlabels))
         for l in msgneedlabels:
             type, data = gmail.uid('COPY', uid, l)
