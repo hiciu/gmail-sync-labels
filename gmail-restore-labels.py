@@ -136,7 +136,7 @@ def apply_labels(gmail, cfg, index):
             added += 1
             #print("%s" % (data,))
         # apply is slow, print all the time
-        if True || count % 100 == 0:
+        if True or count % 100 == 0:
             print("Apply: %7d (%8d) / %7d" % (count, added, total), end='\r')
     print("Apply: %7d (%8d) / %7d -- Done" % (count, added, total))
 
