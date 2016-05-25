@@ -2,6 +2,7 @@
 
 import config_oldbw
 import config_newbw
+
 import email.header
 import imaplib
 import os
@@ -10,6 +11,8 @@ import re
 import shelve
 import ssl
 import pickle
+import time
+import datetime
 
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, cfg):
@@ -121,7 +124,9 @@ def create_label_index(gmail, cfg):
 def apply_labels(gmail, cfg, index):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
     count = 0
+    modified = 0
     added = 0
+    start = time.time()
     for uid, msgid, labels in download_labels(gmail, total):
         count += 1
         msgwantlabels = index.get(msgid, set())
@@ -129,6 +134,8 @@ def apply_labels(gmail, cfg, index):
             print("No labels for %s" % msgid)
         msghaslabels = set(map_labels(labels))
         msgneedlabels = msgwantlabels - msghaslabels
+        if len(msgneedlabels) != 0:
+            modified += 1
         #print("Message %s has %s, should have %s, add %s" % (msgid, msghaslabels, msgwantlabels, msgneedlabels))
         for l in msgneedlabels:
             type, data = gmail.uid('COPY', uid, l)
@@ -137,7 +144,14 @@ def apply_labels(gmail, cfg, index):
             #print("%s" % (data,))
         # apply is slow, print all the time
         if True or count % 100 == 0:
-            print("Apply: %7d (%8d) / %7d" % (count, added, total), end='\r', flush=True)
+            remaining = total - count
+            now = time.time()
+            if modified != 0:
+                eta = start + (now - start) * remaining / modified
+                etastring = datetime.datetime.fromtimestamp(eta).strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                etastring = '?'
+            print("Apply: %7d (%8d) / %7d ETA %s" % (count, added, total, etastring), end='\r', flush=True)
     print("Apply: %7d (%8d) / %7d -- Done" % (count, added, total))
 
 def main():
