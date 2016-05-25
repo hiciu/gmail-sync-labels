@@ -28,6 +28,9 @@ class Gmail(imaplib.IMAP4_SSL):
         self.login(cfg.LOGIN, cfg.PASSWORD)
 
         assert 'X-GM-EXT-1' in self.capabilities
+        
+        # set a timeout for further ops so that it doesn't hang on network hiccups
+        self.socket().settimeout(30.0)
 
     def selectfolder(self, folder, readonly=True):
         resp = self.select(folder, readonly)
