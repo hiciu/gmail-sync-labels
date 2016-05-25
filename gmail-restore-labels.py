@@ -38,24 +38,27 @@ class Gmail(imaplib.IMAP4_SSL):
 
         return total
 
-def download_labels(gmail, total):
-    resp = gmail.fetch('1:%d' % total, '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
+def download_labels_batch(gmail, start, count):
+    # for 1,100 ask for 1:100, next time 101:200, etc.
+    resp = gmail.fetch('%d:%d' % (start, start + count - 1), '(X-GM-LABELS UID BODY[HEADER.FIELDS (MESSAGE-ID)])')
 
     assert resp[0] == 'OK'
 
     """
     response here is ugly:
 
-    [(b'1 (X-GM-MSGID 1222139561679786370 X-GM-LABELS () BODY[HEADER.FIELDS (MESSAGE-ID)] {61}',
+    [(b'1 (X-GM-LABELS () UID 1 BODY[HEADER.FIELDS (MESSAGE-ID)] {61}',
       b'Message-ID: <a38097d40612071225s1e399c3eu@mail.gmail.com>\r\n\r\n'),
      b')',
-     (b'2 (X-GM-MSGID 1222140200241725271 X-GM-LABELS () BODY[HEADER.FIELDS (MESSAGE-ID)] {40}',
+     (b'2 (X-GM-LABELS () UID 2 BODY[HEADER.FIELDS (MESSAGE-ID)] {40}',
       b'Message-ID: <45787AFA.7020202@wp.pl>\r\n\r\n'),
      b')',
      ...
     ]
+    
+    And UID comes after X-GM-LABELs regardless of request order, wtf?
     """
-    regexp = re.compile('(\d+) \(X-GM-THRID (\d+) X-GM-MSGID (\d+) X-GM-LABELS \((.*)\) BODY\[HEADER.FIELDS \(MESSAGE-ID\)\] {(\d+)}')
+    regexp = re.compile('(\d+) \(X-GM-LABELS \((.*)\) UID (\d+) BODY\[HEADER.FIELDS \(MESSAGE-ID\)\] {(\d+)}')
 
     # every even (2, 4, 6, 8, ...) item from response should be b')'
     for even_item in resp[1][1::2]:
@@ -63,7 +66,11 @@ def download_labels(gmail, total):
 
     # every odd (1, 3, 5, 7, ...) item should match regexp
     for odd_item in resp[1][::2]:
-        imapid, gmailthreadid, gmailid, labels, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
+        try:
+            imapid, labels, uid, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
+        except AttributeError:
+            print("%s\n%s" % (odd_item[0], odd_item[1]))
+            raise
 
         assert int(payloadlen) == len(odd_item[1])
 
@@ -79,7 +86,13 @@ def download_labels(gmail, total):
             # allow update by gmail id
             msgid = None
 
-        yield msgid, gmailid, gmailthreadid, labels
+        yield uid, msgid, labels
+
+def download_labels(gmail, total):
+    batch_size = 1000
+    for start in range(1, total, batch_size):
+        for uid, msgid, labels in download_labels_batch(gmail, start, batch_size):
+            yield uid, msgid, labels
 
 def map_labels(labels):
     for label in labels.split():
@@ -91,26 +104,36 @@ def map_labels(labels):
 
 def create_label_index(gmail, cfg):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
-    #DEBUG
-    total = 10
     index = dict()
-    for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
+    count = 0
+    for uid, msgid, labels in download_labels(gmail, total):
         msglabels = index.setdefault(msgid, set())
         msglabels.update(map_labels(labels))
+        ++count
+        if count % 100 == 0:
+            print("Fetch: %7d/%7d" % (count, total), end='\r')
     return index
 
 def apply_labels(gmail, cfg, index):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
-    #DEBUG
-    total = 10
-    for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
+    count = 0
+    for uid, msgid, labels in download_labels(gmail, total):
+        ++count
         msgwantlabels = index.get(msgid)
         if msgwantlabels is None:
             print("No labels for %s" % msgid)
             continue
         msghaslabels = set(map_labels(labels))
         msgneedlabels = msgwantlabels - msghaslabels
-        print("Message %s has %s, should have %s, add %s" % (msgid, msghaslabels, msgwantlabels, msgneedlabels))
+        if len(msgneedlabels) == 0:
+            continue
+        #print("Message %s has %s, should have %s, add %s" % (msgid, msghaslabels, msgwantlabels, msgneedlabels))
+        for l in msgneedlabels:
+            type, data = gmail.uid('COPY', uid, l)
+            assert type == 'OK'
+            #print("%s" % (data,))
+        if count % 100 == 0:
+            print("Apply: %7d/%7d" % (count, total), end='\r')
     raise Exception('Not Implemented')
 
 def main():
