@@ -111,13 +111,14 @@ def create_label_index(gmail, cfg):
         msglabels.update(map_labels(labels))
         count += 1
         if count % 100 == 0:
-            print("Fetch: %7d/%7d" % (count, total), end='\r')
-    print("Fetch: %7d/%7d -- Done" % (count, total))
+            print("Fetch: %7d / %7d" % (count, total), end='\r')
+    print("Fetch: %7d / %7d -- Done" % (count, total))
     return index
 
 def apply_labels(gmail, cfg, index):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
     count = 0
+    added = 0
     for uid, msgid, labels in download_labels(gmail, total):
         count += 1
         msgwantlabels = index.get(msgid)
@@ -132,10 +133,12 @@ def apply_labels(gmail, cfg, index):
         for l in msgneedlabels:
             type, data = gmail.uid('COPY', uid, l)
             assert type == 'OK'
+            added += 1
             #print("%s" % (data,))
-        if count % 100 == 0:
-            print("Apply: %7d/%7d" % (count, total), end='\r')
-    print("Apply: %7d/%7d -- Done" % (count, total))
+        # apply is slow, print all the time
+        if True || count % 100 == 0:
+            print("Apply: %7d (%8d) / %7d" % (count, added, total), end='\r')
+    print("Apply: %7d (%8d) / %7d -- Done" % (count, added, total))
 
 def main():
     labelsfile = 'gmail-restore-labels.labels.pickle'
