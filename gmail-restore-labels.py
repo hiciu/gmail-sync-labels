@@ -9,6 +9,7 @@ import pprint
 import re
 import shelve
 import ssl
+import pickle
 
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, cfg):
@@ -80,13 +81,36 @@ def download_labels(gmail, total):
 
         yield msgid, gmailid, gmailthreadid, labels
 
+def map_labels(labels):
+    for label in labels.split():
+        #TODO: could keep most of these and map to things under [Gmail]/
+        if label[0:3] == '"\\\\':
+            assert label[-1:] == '"'
+            continue
+        yield label
+
 def create_label_index(gmail, cfg):
     total = gmail.selectfolder(cfg.IMAP_FOLDER)
+    #DEBUG
+    total = 10
     index = dict()
     for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
-        raise Exception('Not Implemented')
+        msglabels = index.setdefault(msgid, set())
+        msglabels.update(map_labels(labels))
+    return index
 
 def apply_labels(gmail, cfg, index):
+    total = gmail.selectfolder(cfg.IMAP_FOLDER)
+    #DEBUG
+    total = 10
+    for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
+        msgwantlabels = index.get(msgid)
+        if msgwantlabels is None:
+            print("No labels for %s" % msgid)
+            continue
+        msghaslabels = set(map_labels(labels))
+        msgneedlabels = msgwantlabels - msghaslabels
+        print("Message %s has %s, should have %s, add %s" % (msgid, msghaslabels, msgwantlabels, msgneedlabels))
     raise Exception('Not Implemented')
 
 def main():
@@ -99,12 +123,12 @@ def main():
         print('No index file, will generate one')
         index = None
     if index is None:
-        with oldgmail = Gmail(config_oldbw):
-            index = create_label_index(oldgmail, cfg_oldbw)
-        with open(labelsfile, 'rb') as f:
+        with Gmail(config_oldbw) as oldgmail:
+            index = create_label_index(oldgmail, config_oldbw)
+        with open(labelsfile, 'wb') as f:
             pickle.dump(index, f)
     
-    with newgmail = Gmail(config_newbw):
+    with Gmail(config_newbw) as newgmail:
         apply_labels(newgmail, config_newbw, index)
     
     return
