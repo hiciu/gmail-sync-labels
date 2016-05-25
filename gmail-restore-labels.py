@@ -112,6 +112,7 @@ def create_label_index(gmail, cfg):
         count += 1
         if count % 100 == 0:
             print("Fetch: %7d/%7d" % (count, total), end='\r')
+    print('\nDone')
     return index
 
 def apply_labels(gmail, cfg, index):
@@ -134,7 +135,7 @@ def apply_labels(gmail, cfg, index):
             #print("%s" % (data,))
         if count % 100 == 0:
             print("Apply: %7d/%7d" % (count, total), end='\r')
-    raise Exception('Not Implemented')
+    print('\nDone')
 
 def main():
     labelsfile = 'gmail-restore-labels.labels.pickle'
