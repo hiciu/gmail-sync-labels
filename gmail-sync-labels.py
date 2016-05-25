@@ -383,7 +383,7 @@ def main():
 
         for progress in db.init():
             if os.isatty(1):
-                print('progress: %0.2f%%' % float(progress * 100 / total), end='\r')
+                print('progress: %0.2f%%' % float(progress * 100 / total), end='\r', flush=True)
         
         if config.INDEX_ONLY:
             print('indexing complete')
@@ -402,7 +402,7 @@ def main():
         for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
             i += 1
             if i % 10 == 0 and os.isatty(1):
-                print('progress: %0.2f%%' % float(i * 100 / total), end='\r')
+                print('progress: %0.2f%%' % float(i * 100 / total), end='\r', flush=True)
 
             updaterc = db.apply_labels(msgid, gmailid, gmailthreadid, labels)
             if updaterc < 0:

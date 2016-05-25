@@ -111,7 +111,7 @@ def create_label_index(gmail, cfg):
         msglabels.update(map_labels(labels))
         count += 1
         if count % 100 == 0:
-            print("Fetch: %7d / %7d" % (count, total), end='\r')
+            print("Fetch: %7d / %7d" % (count, total), end='\r', flush=True)
     print("Fetch: %7d / %7d -- Done" % (count, total))
     return index
 
@@ -137,7 +137,7 @@ def apply_labels(gmail, cfg, index):
             #print("%s" % (data,))
         # apply is slow, print all the time
         if True or count % 100 == 0:
-            print("Apply: %7d (%8d) / %7d" % (count, added, total), end='\r')
+            print("Apply: %7d (%8d) / %7d" % (count, added, total), end='\r', flush=True)
     print("Apply: %7d (%8d) / %7d -- Done" % (count, added, total))
 
 def main():
