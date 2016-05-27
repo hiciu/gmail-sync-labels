@@ -145,9 +145,13 @@ def apply_labels(gmail, cfg, index):
         # apply is slow, print all the time
         if True or count % 100 == 0:
             remaining = total - count
+            if remaining <= 0:
+            	# wtf?
+            	remaining = 0
             now = time.time()
             if modified != 0:
                 eta = start + (now - start) * remaining / modified
+                assert eta >= start, "%f %f %d %d %d %d" % (start, now, total, count, remaining, modified)
                 etastring = datetime.datetime.fromtimestamp(eta).strftime('%Y-%m-%d %H:%M:%S')
             else:
                 etastring = '?'
