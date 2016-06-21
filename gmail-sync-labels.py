@@ -10,10 +10,8 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 """
 
-import config
-# import importlib
-# import importlib.machinery
-# importlib.machinery.SourceFileLoader('config', 'tmp/foo.py').load_module('config')
+import importlib
+import importlib.machinery
 
 import email.header
 import imaplib
@@ -23,9 +21,16 @@ import pprint
 import re
 import shelve
 import ssl
+import sys
 
-if config.USE_NOTMUCH:
+# prep global for later init
+config = None
+
+try:
     import notmuch
+except ImportError:
+    # ignore
+    pass
 
 DATA_VERSION = 4
 
@@ -292,7 +297,7 @@ class MaildirDatabase(mailbox.Maildir):
         
         return 1
 
-if config.USE_NOTMUCH:
+if 'notmuch' in sys.modules:
     class NotmuchDatabase(notmuch.Database):
         def init(self):
             yield len(self)
@@ -370,8 +375,19 @@ def download_labels(gmail, total):
         yield msgid, gmailid, gmailthreadid, labels
 
 def main():
+    cfgname = sys.argv[1]
+    if cfgname == None:
+    	cfgname = 'config'
+    global config
+    if os.path.isfile(cfgname):
+    	config = importlib.machinery.SourceFileLoader('config', cfgname).load_module()
+    else:
+    	config = importlib.import_module(cfgname)
+    
     print('opening maildir')
     if config.USE_NOTMUCH:
+        # re-import to raise exception if the module is missing
+        import notmuch
         db = NotmuchDatabase(mode=Database.MODE.READ_WRITE)
     else:
         db = MaildirDatabase(config.MAILDIR)
@@ -417,4 +433,6 @@ def main():
         db.close()
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
+
+# vim: set ts=4 sw=4 et
