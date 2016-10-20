@@ -1,3 +1,5 @@
+This project is no longer maintained.
+
 How this is supposed to work
 ============================
 
