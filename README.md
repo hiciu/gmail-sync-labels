@@ -19,3 +19,8 @@ before: make backup of your Maildir. It works for me, but it may destroy mails f
     cp config.py.template config.py
     edit config.py
     python3 gmail-sync-labels.py
+
+Similar projects
+==============
+
+1. [gmail-notmuch](http://git.zx2c4.com/gmail-notmuch/)
