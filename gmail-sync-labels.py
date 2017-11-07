@@ -26,12 +26,6 @@ import sys
 # prep global for later init
 config = None
 
-try:
-    import notmuch
-except ImportError:
-    # ignore
-    pass
-
 DATA_VERSION = 4
 
 # utility helper
@@ -297,40 +291,6 @@ class MaildirDatabase(mailbox.Maildir):
         
         return 1
 
-if 'notmuch' in sys.modules:
-    class NotmuchDatabase(notmuch.Database):
-        def init(self):
-            yield len(self)
-
-        def __len__(self):
-            return self.create_query('').count_messages()
-
-        def close(self):
-            pass
-
-        def apply_labels(self, msgid, gmailid, gmailthreadid, labels):
-            if msgid == None:
-                #TODO: support lookup via gmail id in notmuch
-                return -1
-            msg = self.find_message(msgid[1:-1])
-            if not msg:
-                print('no such message: %s' % msgid)
-                return -1
-
-            tags = list(filter(lambda x: len(x) != 0, map(str.strip, labels.split('"'))))
-
-            if sorted(tags) == sorted(list(msg.get_tags())):
-                return 0
-
-            msg.freeze()
-            msg.remove_all_tags(False)
-            for tag in tags:
-                msg.add_tag(tag, False)
-            msg.thaw()
-            msg.tags_to_maildir_flags()
-            
-            return 1
-
 def download_labels(gmail, total):
     """
     response here is ugly:
@@ -389,12 +349,7 @@ def main():
     	config = importlib.import_module(cfgname)
     
     print('opening maildir')
-    if config.USE_NOTMUCH:
-        # re-import to raise exception if the module is missing
-        import notmuch
-        db = NotmuchDatabase(mode=Database.MODE.READ_WRITE)
-    else:
-        db = MaildirDatabase(config.MAILDIR)
+    db = MaildirDatabase(config.MAILDIR)
 
     total = len(db)
 

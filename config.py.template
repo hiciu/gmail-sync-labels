@@ -1,5 +1,4 @@
 MAILDIR = '/home/someone/Maildir'
-USE_NOTMUCH = False
 LOGIN, PASSWORD = 'someone@gmail.com', 'password'
 # some versions of imaplib need extra quotes in here if you use a mailbox
 # with spaces, such as:
