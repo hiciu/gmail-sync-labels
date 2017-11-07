@@ -353,6 +353,9 @@ def main():
 
     total = len(db)
 
+    updated_msgs = 0
+    errors = 0
+    
     try:
         print('searching for new messages')
 
@@ -372,8 +375,6 @@ def main():
         i = 0
 
         print('downloading and applying labels')
-        updated_msgs = 0
-        errors = 0
         for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
             i += 1
             if i % 10 == 0 and os.isatty(1):
@@ -384,9 +385,13 @@ def main():
                 errors += 1
             else:
                 updated_msgs += updaterc
-        print('Updated %d messages, %d errors' % (updated_msgs, errors))
-
+    except imaplib.IMAP4.error as err:
+        if os.isatty(1):
+            print('') # flush progress line
+        print('Failed with imap error:', file=sys.stderr)
+        print(err, file=sys.stderr)
     finally:
+        print('Updated %d messages, %d errors' % (updated_msgs, errors))
         # extra whitespace at end to ensure it fully overwrites progress line
         print('saving database ')
         db.close()
