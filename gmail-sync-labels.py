@@ -392,22 +392,20 @@ def main():
         total = gmail.selectfolder(config.IMAP_FOLDER)
         i = 0
 
-        print('downloading and applying labels')
+        print('downloading and applying labels for %d messages' % total)
         for msgid, gmailid, gmailthreadid, labels in download_labels(gmail, total):
+            checked_msgs += 1
             i += 1
             if i % 10 == 0 and os.isatty(1):
-                print('progress: %0.2f%%' % float(i * 100 / total), end='\r', flush=True)
+                print('progress: %0.2f%% %d' % (float(i * 100 / total), checked_msgs), end='\r', flush=True)
 
             updaterc = db.apply_labels(msgid, gmailid, gmailthreadid, labels)
-            checked_msgs += 1
             if updaterc < 0:
                 errors += 1
             else:
                 updated_msgs += updaterc
     except imaplib.IMAP4.error as err:
-        if os.isatty(1):
-            print('') # flush progress line
-        print('Failed with imap error:', file=sys.stderr)
+        print('\nFailed with imap error:', file=sys.stderr)
         print(err, file=sys.stderr)
     finally:
         print('Updated %d/%d messages, %d errors' % (updated_msgs, checked_msgs, errors))
