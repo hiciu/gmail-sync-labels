@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -B
 
 """
 Copyright (C) 2013 Krzysztof Warzecha <kwarzecha7@gmail.com>
@@ -332,10 +332,6 @@ if 'notmuch' in sys.modules:
             return 1
 
 def download_labels(gmail, total):
-    resp = gmail.fetch('1:%d' % total, '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
-
-    assert resp[0] == 'OK'
-
     """
     response here is ugly:
 
@@ -349,30 +345,38 @@ def download_labels(gmail, total):
     ]
     """
     regexp = re.compile('(\d+) \(X-GM-THRID (\d+) X-GM-MSGID (\d+) X-GM-LABELS \((.*)\) BODY\[HEADER.FIELDS \(MESSAGE-ID\)\] {(\d+)}')
+    
+    # gmail doesn't like doing large fetches, so batch it up into chunks
+    chunk_size = 1000
+    for chunk_start in range(1, total, chunk_size):
+        # ranges in the imap fetch are inclusive, so care for fenceposts
+        chunk_end = min(total, chunk_start + chunk_size - 1)
+        resp = gmail.fetch('%d:%d' % (chunk_start, chunk_end), '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
+        assert resp[0] == 'OK'
 
-    # every even (2, 4, 6, 8, ...) item from response should be b')'
-    for even_item in resp[1][1::2]:
-        assert even_item == b')'
+        # every even (2, 4, 6, 8, ...) item from response should be b')'
+        for even_item in resp[1][1::2]:
+            assert even_item == b')'
 
-    # every odd (1, 3, 5, 7, ...) item should match regexp
-    for odd_item in resp[1][::2]:
-        imapid, gmailthreadid, gmailid, labels, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
+        # every odd (1, 3, 5, 7, ...) item should match regexp
+        for odd_item in resp[1][::2]:
+            imapid, gmailthreadid, gmailid, labels, payloadlen = regexp.match(odd_item[0].decode('utf-8')).groups()
 
-        assert int(payloadlen) == len(odd_item[1])
+            assert int(payloadlen) == len(odd_item[1])
 
-        try:
-            msgid = odd_item[1].decode('utf-8').split()[1]
-        except IndexError:
-            if config.DEBUG or config.MESSAGE_DETAILS:
-                print('got message without Message-ID header: '
-                      'gmail id %s, link: https://mail.google.com/mail/#all/%s'
-                      % (gmailid, hex(int(gmailthreadid))[2:])
-                )
-            #continue
-            # allow update by gmail id
-            msgid = None
+            try:
+                msgid = odd_item[1].decode('utf-8').split()[1]
+            except IndexError:
+                if config.DEBUG or config.MESSAGE_DETAILS:
+                    print('got message without Message-ID header: '
+                          'gmail id %s, link: https://mail.google.com/mail/#all/%s'
+                          % (gmailid, hex(int(gmailthreadid))[2:])
+                    )
+                #continue
+                # allow update by gmail id
+                msgid = None
 
-        yield msgid, gmailid, gmailthreadid, labels
+            yield msgid, gmailid, gmailthreadid, labels
 
 def main():
     cfgname = sys.argv[1]
