@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 
-import config_oldbw
-import config_newbw
+import importlib
+import importlib.machinery
 
 import email.header
 import imaplib
@@ -14,6 +14,10 @@ import pickle
 import time
 import datetime
 
+oldconfig = None
+newconfig = None
+
+#FIXME: refactor to separate file to share code
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, cfg):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
@@ -44,6 +48,7 @@ class Gmail(imaplib.IMAP4_SSL):
 
         return total
 
+#FIXME: refactor to separate class to share code
 def download_labels_batch(gmail, start, count):
     # for 1,100 ask for 1:100, next time 101:200, etc.
     resp = gmail.fetch('%d:%d' % (start, start + count - 1), '(X-GM-LABELS UID BODY[HEADER.FIELDS (MESSAGE-ID)])')
@@ -94,6 +99,7 @@ def download_labels_batch(gmail, start, count):
 
         yield uid, msgid, labels
 
+#FIXME: refactor to separate class to share code
 def download_labels(gmail, total):
     batch_size = 1000
     for start in range(1, total, batch_size):
@@ -158,7 +164,24 @@ def apply_labels(gmail, cfg, index):
             print("Apply: %7d (%8d) / %7d ETA %s" % (count, added, total, etastring), end='\r', flush=True)
     print("Apply: %7d (%8d) / %7d -- Done" % (count, added, total))
 
+oldconfig = None
+newconfig = None
+
 def main():
+    oldcfgname = sys.argv[1]
+    newcfgname = sys.argv[2]
+
+    global oldconfig
+    global newconfig
+    if os.path.isfile(oldcfgname):
+    	oldconfig = importlib.machinery.SourceFileLoader('oldconfig', oldcfgname).load_module()
+    else:
+    	oldconfig = importlib.import_module(oldcfgname)
+    if os.path.isfile(newcfgname):
+    	newconfig = importlib.machinery.SourceFileLoader('newconfig', newcfgname).load_module()
+    else:
+    	newconfig = importlib.import_module(newcfgname)
+
     labelsfile = 'gmail-restore-labels.labels.pickle'
     index = None
     try:
@@ -168,13 +191,13 @@ def main():
         print('No index file, will generate one')
         index = None
     if index is None:
-        with Gmail(config_oldbw) as oldgmail:
-            index = create_label_index(oldgmail, config_oldbw)
+        with Gmail(oldconfig) as oldgmail:
+            index = create_label_index(oldgmail, oldconfig)
         with open(labelsfile, 'wb') as f:
             pickle.dump(index, f)
     
-    with Gmail(config_newbw) as newgmail:
-        apply_labels(newgmail, config_newbw, index)
+    with Gmail(newconfig) as newgmail:
+        apply_labels(newgmail, newconfig, index)
     
     return
 

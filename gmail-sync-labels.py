@@ -43,6 +43,7 @@ def header_to_string(headervalue):
             raise
     return str(header)
 
+#FIXME: refactor to separate file to share code
 class Gmail(imaplib.IMAP4_SSL):
     def __init__(self, login, password):
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLSv1)
@@ -291,6 +292,7 @@ class MaildirDatabase(mailbox.Maildir):
         
         return 1
 
+#FIXME: refactor to separate class o share code
 def download_labels(gmail, total):
     """
     response here is ugly:
@@ -369,6 +371,8 @@ def main():
 
         print('connecting to gmail')
         gmail = Gmail(config.LOGIN, config.PASSWORD)
+
+        gmail.debug = 15;
 
         print('selecting mailbox')
         total = gmail.selectfolder(config.IMAP_FOLDER)

@@ -21,6 +21,17 @@ mails for you.  It was tested with python 3.3, it may or may not work with
 older releases.  Feel free to post patches / pull requests / issues about
 older versions.
 
-    cp config.py.template config.py
+    cp config.py.template config_named.py
     edit config_named.py
     python3 gmail-sync-labels.py config_named
+
+How to use the label restorer
+=============================
+
+The restorer currently works by copying from one gmail account to another,
+keying by message ID.  Note that this tool is not well tested.
+
+    cp config.py.template config_old.py
+    cp config.py.template config_new.py
+    edit config_old.py config_new.py
+    python3 gmail-restore-labels.py config_old config_new
