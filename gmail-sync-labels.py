@@ -313,8 +313,21 @@ def download_labels(gmail, total):
     for chunk_start in range(1, total, chunk_size):
         # ranges in the imap fetch are inclusive, so care for fenceposts
         chunk_end = min(total, chunk_start + chunk_size - 1)
-        resp = gmail.fetch('%d:%d' % (chunk_start, chunk_end), '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
-        assert resp[0] == 'OK'
+        # gmail gets cranky sometimes and just refuses to list some messages
+        # if we get an error, skip one forwards
+        # if the problem message is the last one, this will take forever
+        # better would be to bisect the range, but that requires state tracking
+        resp = None
+        while resp == None and chunk_start <= chunk_end:
+            resp = gmail.fetch('%d:%d' % (chunk_start, chunk_end), '(X-GM-THRID X-GM-MSGID X-GM-LABELS BODY[HEADER.FIELDS (MESSAGE-ID)])')
+            if resp[0] == 'OK':
+                break
+            resp = None
+            chunk_start += 1
+        # no messages from this chunk were available, move on to the next chunk
+        if resp == None:
+            print("\nGave up fetching range [%d, %d]" % (chunk_start, chunk_end), file=sys.stderr)
+            continue
 
         # every even (2, 4, 6, 8, ...) item from response should be b')'
         for even_item in resp[1][1::2]:
@@ -356,6 +369,7 @@ def main():
     total = len(db)
 
     updated_msgs = 0
+    checked_msgs = 0
     errors = 0
     
     try:
@@ -372,7 +386,7 @@ def main():
         print('connecting to gmail')
         gmail = Gmail(config.LOGIN, config.PASSWORD)
 
-        gmail.debug = 15;
+        #gmail.debug = 15;
 
         print('selecting mailbox')
         total = gmail.selectfolder(config.IMAP_FOLDER)
@@ -385,6 +399,7 @@ def main():
                 print('progress: %0.2f%%' % float(i * 100 / total), end='\r', flush=True)
 
             updaterc = db.apply_labels(msgid, gmailid, gmailthreadid, labels)
+            checked_msgs += 1
             if updaterc < 0:
                 errors += 1
             else:
@@ -395,7 +410,7 @@ def main():
         print('Failed with imap error:', file=sys.stderr)
         print(err, file=sys.stderr)
     finally:
-        print('Updated %d messages, %d errors' % (updated_msgs, errors))
+        print('Updated %d/%d messages, %d errors' % (updated_msgs, checked_msgs, errors))
         # extra whitespace at end to ensure it fully overwrites progress line
         print('saving database ')
         db.close()
