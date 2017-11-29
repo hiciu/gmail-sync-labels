@@ -35,3 +35,8 @@ keying by message ID.  Note that this tool is not well tested.
     cp config.py.template config_new.py
     edit config_old.py config_new.py
     python3 gmail-restore-labels.py config_old config_new
+
+similar projects
+================
+
+1. [gmail-notmuch](http://git.zx2c4.com/gmail-notmuch/)
